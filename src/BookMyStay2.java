@@ -1,4 +1,5 @@
 import java.util.*;
+import java.util.concurrent.*;
 
 class Reservation {
     private String reservationId;
@@ -27,9 +28,8 @@ class Reservation {
 }
 
 class BookingHistory {
-    private List<Reservation> confirmedBookings = new ArrayList<>();
-    private Stack<String> rollbackRoomStack = new Stack<>();
-    private Map<String, Integer> inventory = new HashMap<>();
+    private List<Reservation> confirmedBookings = Collections.synchronizedList(new ArrayList<>());
+    private Map<String, Integer> inventory = new ConcurrentHashMap<>();
 
     public BookingHistory() {
         inventory.put("Standard", 5);
@@ -37,48 +37,16 @@ class BookingHistory {
         inventory.put("Suite", 2);
     }
 
-    public boolean isCancellable(String reservationId) {
-        for (Reservation r : confirmedBookings) {
-            if (r.getReservationId().equals(reservationId)) {
-                return true;
-            }
+    public synchronized boolean addReservation(Reservation r) {
+        int available = inventory.getOrDefault(r.getRoomType(), 0);
+        if (available <= 0) {
+            System.out.println("Booking Failed for " + r.getGuestName() + ": No " + r.getRoomType() + " rooms available");
+            return false;
         }
-        return false;
-    }
-
-    public void addReservation(Reservation r) {
+        inventory.put(r.getRoomType(), available - 1);
         confirmedBookings.add(r);
-        decrementInventory(r.getRoomType());
-        rollbackRoomStack.push(r.getRoomType());
-        System.out.println("Reservation " + r.getReservationId() + " confirmed.");
-    }
-
-    public void cancelReservation(String reservationId) {
-        if (!isCancellable(reservationId)) {
-            System.out.println("Cancellation Error: Reservation " + reservationId + " does not exist.");
-            return;
-        }
-
-        Reservation toCancel = null;
-        for (Reservation r : confirmedBookings) {
-            if (r.getReservationId().equals(reservationId)) {
-                toCancel = r;
-                break;
-            }
-        }
-
-        confirmedBookings.remove(toCancel);
-        rollbackInventory(toCancel.getRoomType());
-        System.out.println("Reservation " + reservationId + " cancelled successfully.");
-    }
-
-    private void decrementInventory(String roomType) {
-        inventory.put(roomType, inventory.get(roomType) - 1);
-    }
-
-    private void rollbackInventory(String roomType) {
-        inventory.put(roomType, inventory.get(roomType) + 1);
-        rollbackRoomStack.pop();
+        System.out.println("Reservation confirmed: " + r.getReservationId() + " for " + r.getGuestName());
+        return true;
     }
 
     public void printInventory() {
@@ -89,45 +57,62 @@ class BookingHistory {
     }
 
     public void printBookingHistory() {
-        if (confirmedBookings.isEmpty()) {
-            System.out.println("No active bookings.");
-            return;
-        }
-        System.out.println("Active Bookings:");
-        System.out.println("ResID | Guest | Room | Nights | Total Cost");
-        System.out.println("------------------------------------------");
-        for (Reservation r : confirmedBookings) {
-            System.out.println(r);
+        synchronized (confirmedBookings) {
+            if (confirmedBookings.isEmpty()) {
+                System.out.println("No bookings available.");
+                return;
+            }
+            System.out.println("Booking History:");
+            System.out.println("ResID | Guest | Room | Nights | Total Cost");
+            System.out.println("------------------------------------------");
+            for (Reservation r : confirmedBookings) {
+                System.out.println(r);
+            }
         }
     }
 }
 
+class GuestBookingThread extends Thread {
+    private BookingHistory history;
+    private Reservation reservation;
+
+    public GuestBookingThread(BookingHistory history, Reservation reservation) {
+        this.history = history;
+        this.reservation = reservation;
+    }
+
+    @Override
+    public void run() {
+        history.addReservation(reservation);
+    }
+}
+
 public class BookMyStay2 {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
+
         BookingHistory history = new BookingHistory();
 
-        Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
-        Reservation r2 = new Reservation("RES102", "Bob", "Standard", 2, 3000);
-        Reservation r3 = new Reservation("RES103", "Charlie", "Suite", 5, 12500);
+        List<GuestBookingThread> threads = new ArrayList<>();
 
-        history.addReservation(r1);
-        history.addReservation(r2);
-        history.addReservation(r3);
+        threads.add(new GuestBookingThread(history, new Reservation("RES101", "Alice", "Deluxe", 3, 4500)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES102", "Bob", "Standard", 2, 3000)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES103", "Charlie", "Suite", 5, 12500)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES104", "David", "Suite", 1, 5000)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES105", "Eve", "Deluxe", 2, 4000)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES106", "Frank", "Standard", 3, 4500)));
+        threads.add(new GuestBookingThread(history, new Reservation("RES107", "Grace", "Deluxe", 1, 2000)));
+
+        for (GuestBookingThread t : threads) {
+            t.start();
+        }
+
+        for (GuestBookingThread t : threads) {
+            t.join();
+        }
 
         System.out.println();
         history.printBookingHistory();
         System.out.println();
         history.printInventory();
-
-        System.out.println("\nAttempting cancellation of RES102...");
-        history.cancelReservation("RES102");
-
-        System.out.println();
-        history.printBookingHistory();
-        System.out.println();
-        history.printInventory();
-
-        System.out.println("\nAttempting cancellation of non-existent RES999...");
-        history.cancelReservation("RES999");
     }
 }
