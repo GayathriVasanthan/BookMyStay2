@@ -26,6 +26,28 @@ class Reservation {
     }
 }
 
+class InvalidBookingException extends Exception {
+    public InvalidBookingException(String message) {
+        super(message);
+    }
+}
+
+class BookingValidator {
+    private static final Set<String> validRoomTypes = new HashSet<>(Arrays.asList("Standard", "Deluxe", "Suite"));
+
+    public static void validate(String guestName, String roomType, int nights) throws InvalidBookingException {
+        if (guestName == null || guestName.trim().isEmpty()) {
+            throw new InvalidBookingException("Guest name cannot be empty.");
+        }
+        if (!validRoomTypes.contains(roomType)) {
+            throw new InvalidBookingException("Invalid room type: " + roomType);
+        }
+        if (nights <= 0) {
+            throw new InvalidBookingException("Number of nights must be greater than zero.");
+        }
+    }
+}
+
 class BookingHistory {
     private List<Reservation> confirmedBookings = new ArrayList<>();
 
@@ -78,13 +100,29 @@ public class BookMyStay2 {
         BookingHistory history = new BookingHistory();
         BookingReportService reportService = new BookingReportService(history);
 
-        Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
-        Reservation r2 = new Reservation("RES102", "Bob", "Standard", 2, 3000);
-        Reservation r3 = new Reservation("RES103", "Charlie", "Suite", 5, 12500);
+        try {
+            BookingValidator.validate("Alice", "Deluxe", 3);
+            Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
+            history.addReservation(r1);
+        } catch (InvalidBookingException e) {
+            System.out.println("Booking Error: " + e.getMessage());
+        }
 
-        history.addReservation(r1);
-        history.addReservation(r2);
-        history.addReservation(r3);
+        try {
+            BookingValidator.validate("Bob", "Economy", 2); // invalid room type
+            Reservation r2 = new Reservation("RES102", "Bob", "Economy", 2, 3000);
+            history.addReservation(r2);
+        } catch (InvalidBookingException e) {
+            System.out.println("Booking Error: " + e.getMessage());
+        }
+
+        try {
+            BookingValidator.validate("Charlie", "Suite", 0); // invalid nights
+            Reservation r3 = new Reservation("RES103", "Charlie", "Suite", 0, 12500);
+            history.addReservation(r3);
+        } catch (InvalidBookingException e) {
+            System.out.println("Booking Error: " + e.getMessage());
+        }
 
         System.out.println();
         reportService.printAllReservations();
