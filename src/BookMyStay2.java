@@ -26,106 +26,108 @@ class Reservation {
     }
 }
 
-class InvalidBookingException extends Exception {
-    public InvalidBookingException(String message) {
-        super(message);
-    }
-}
-
-class BookingValidator {
-    private static final Set<String> validRoomTypes = new HashSet<>(Arrays.asList("Standard", "Deluxe", "Suite"));
-
-    public static void validate(String guestName, String roomType, int nights) throws InvalidBookingException {
-        if (guestName == null || guestName.trim().isEmpty()) {
-            throw new InvalidBookingException("Guest name cannot be empty.");
-        }
-        if (!validRoomTypes.contains(roomType)) {
-            throw new InvalidBookingException("Invalid room type: " + roomType);
-        }
-        if (nights <= 0) {
-            throw new InvalidBookingException("Number of nights must be greater than zero.");
-        }
-    }
-}
-
 class BookingHistory {
     private List<Reservation> confirmedBookings = new ArrayList<>();
+    private Stack<String> rollbackRoomStack = new Stack<>();
+    private Map<String, Integer> inventory = new HashMap<>();
 
-    public void addReservation(Reservation reservation) {
-        confirmedBookings.add(reservation);
-        System.out.println("Reservation " + reservation.getReservationId() + " added to booking history.");
+    public BookingHistory() {
+        inventory.put("Standard", 5);
+        inventory.put("Deluxe", 3);
+        inventory.put("Suite", 2);
     }
 
-    public List<Reservation> getAllReservations() {
-        return new ArrayList<>(confirmedBookings);
-    }
-}
-
-class BookingReportService {
-    private BookingHistory history;
-
-    public BookingReportService(BookingHistory history) {
-        this.history = history;
+    public boolean isCancellable(String reservationId) {
+        for (Reservation r : confirmedBookings) {
+            if (r.getReservationId().equals(reservationId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public void printAllReservations() {
-        List<Reservation> reservations = history.getAllReservations();
-        if (reservations.isEmpty()) {
-            System.out.println("No bookings available.");
+    public void addReservation(Reservation r) {
+        confirmedBookings.add(r);
+        decrementInventory(r.getRoomType());
+        rollbackRoomStack.push(r.getRoomType());
+        System.out.println("Reservation " + r.getReservationId() + " confirmed.");
+    }
+
+    public void cancelReservation(String reservationId) {
+        if (!isCancellable(reservationId)) {
+            System.out.println("Cancellation Error: Reservation " + reservationId + " does not exist.");
             return;
         }
 
-        System.out.println("Booking History:");
-        System.out.println("ResID | Guest | Room | Nights | Total Cost");
-        System.out.println("------------------------------------------");
-        for (Reservation r : reservations) {
-            System.out.println(r);
+        Reservation toCancel = null;
+        for (Reservation r : confirmedBookings) {
+            if (r.getReservationId().equals(reservationId)) {
+                toCancel = r;
+                break;
+            }
+        }
+
+        confirmedBookings.remove(toCancel);
+        rollbackInventory(toCancel.getRoomType());
+        System.out.println("Reservation " + reservationId + " cancelled successfully.");
+    }
+
+    private void decrementInventory(String roomType) {
+        inventory.put(roomType, inventory.get(roomType) - 1);
+    }
+
+    private void rollbackInventory(String roomType) {
+        inventory.put(roomType, inventory.get(roomType) + 1);
+        rollbackRoomStack.pop();
+    }
+
+    public void printInventory() {
+        System.out.println("Current Inventory:");
+        for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+            System.out.println(e.getKey() + ": " + e.getValue() + " rooms available");
         }
     }
 
-    public void printSummary() {
-        List<Reservation> reservations = history.getAllReservations();
-        double totalRevenue = 0;
-        for (Reservation r : reservations) {
-            totalRevenue += r.getTotalCost();
+    public void printBookingHistory() {
+        if (confirmedBookings.isEmpty()) {
+            System.out.println("No active bookings.");
+            return;
         }
-        System.out.println("\nTotal Bookings: " + reservations.size());
-        System.out.println("Total Revenue: ₹" + totalRevenue);
+        System.out.println("Active Bookings:");
+        System.out.println("ResID | Guest | Room | Nights | Total Cost");
+        System.out.println("------------------------------------------");
+        for (Reservation r : confirmedBookings) {
+            System.out.println(r);
+        }
     }
 }
 
 public class BookMyStay2 {
-
     public static void main(String[] args) {
         BookingHistory history = new BookingHistory();
-        BookingReportService reportService = new BookingReportService(history);
 
-        try {
-            BookingValidator.validate("Alice", "Deluxe", 3);
-            Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
-            history.addReservation(r1);
-        } catch (InvalidBookingException e) {
-            System.out.println("Booking Error: " + e.getMessage());
-        }
+        Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
+        Reservation r2 = new Reservation("RES102", "Bob", "Standard", 2, 3000);
+        Reservation r3 = new Reservation("RES103", "Charlie", "Suite", 5, 12500);
 
-        try {
-            BookingValidator.validate("Bob", "Economy", 2); // invalid room type
-            Reservation r2 = new Reservation("RES102", "Bob", "Economy", 2, 3000);
-            history.addReservation(r2);
-        } catch (InvalidBookingException e) {
-            System.out.println("Booking Error: " + e.getMessage());
-        }
-
-        try {
-            BookingValidator.validate("Charlie", "Suite", 0); // invalid nights
-            Reservation r3 = new Reservation("RES103", "Charlie", "Suite", 0, 12500);
-            history.addReservation(r3);
-        } catch (InvalidBookingException e) {
-            System.out.println("Booking Error: " + e.getMessage());
-        }
+        history.addReservation(r1);
+        history.addReservation(r2);
+        history.addReservation(r3);
 
         System.out.println();
-        reportService.printAllReservations();
-        reportService.printSummary();
+        history.printBookingHistory();
+        System.out.println();
+        history.printInventory();
+
+        System.out.println("\nAttempting cancellation of RES102...");
+        history.cancelReservation("RES102");
+
+        System.out.println();
+        history.printBookingHistory();
+        System.out.println();
+        history.printInventory();
+
+        System.out.println("\nAttempting cancellation of non-existent RES999...");
+        history.cancelReservation("RES999");
     }
 }
