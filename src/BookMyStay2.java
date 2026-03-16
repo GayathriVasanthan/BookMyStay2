@@ -1,7 +1,8 @@
+import java.io.*;
 import java.util.*;
-import java.util.concurrent.*;
 
-class Reservation {
+class Reservation implements Serializable {
+    private static final long serialVersionUID = 1L;
     private String reservationId;
     private String guestName;
     private String roomType;
@@ -27,9 +28,10 @@ class Reservation {
     }
 }
 
-class BookingHistory {
-    private List<Reservation> confirmedBookings = Collections.synchronizedList(new ArrayList<>());
-    private Map<String, Integer> inventory = new ConcurrentHashMap<>();
+class BookingHistory implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private List<Reservation> confirmedBookings = new ArrayList<>();
+    private Map<String, Integer> inventory = new HashMap<>();
 
     public BookingHistory() {
         inventory.put("Standard", 5);
@@ -37,7 +39,7 @@ class BookingHistory {
         inventory.put("Suite", 2);
     }
 
-    public synchronized boolean addReservation(Reservation r) {
+    public boolean addReservation(Reservation r) {
         int available = inventory.getOrDefault(r.getRoomType(), 0);
         if (available <= 0) {
             System.out.println("Booking Failed for " + r.getGuestName() + ": No " + r.getRoomType() + " rooms available");
@@ -49,6 +51,19 @@ class BookingHistory {
         return true;
     }
 
+    public void printBookingHistory() {
+        if (confirmedBookings.isEmpty()) {
+            System.out.println("No bookings available.");
+            return;
+        }
+        System.out.println("Booking History:");
+        System.out.println("ResID | Guest | Room | Nights | Total Cost");
+        System.out.println("------------------------------------------");
+        for (Reservation r : confirmedBookings) {
+            System.out.println(r);
+        }
+    }
+
     public void printInventory() {
         System.out.println("Current Inventory:");
         for (Map.Entry<String, Integer> e : inventory.entrySet()) {
@@ -56,63 +71,47 @@ class BookingHistory {
         }
     }
 
-    public void printBookingHistory() {
-        synchronized (confirmedBookings) {
-            if (confirmedBookings.isEmpty()) {
-                System.out.println("No bookings available.");
-                return;
-            }
-            System.out.println("Booking History:");
-            System.out.println("ResID | Guest | Room | Nights | Total Cost");
-            System.out.println("------------------------------------------");
-            for (Reservation r : confirmedBookings) {
-                System.out.println(r);
-            }
+    public void saveToFile(String filename) {
+        try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(filename))) {
+            out.writeObject(this);
+            System.out.println("Booking history saved successfully to " + filename);
+        } catch (IOException e) {
+            System.out.println("Error saving booking history: " + e.getMessage());
         }
     }
-}
 
-class GuestBookingThread extends Thread {
-    private BookingHistory history;
-    private Reservation reservation;
-
-    public GuestBookingThread(BookingHistory history, Reservation reservation) {
-        this.history = history;
-        this.reservation = reservation;
-    }
-
-    @Override
-    public void run() {
-        history.addReservation(reservation);
+    public static BookingHistory loadFromFile(String filename) {
+        try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(filename))) {
+            return (BookingHistory) in.readObject();
+        } catch (FileNotFoundException e) {
+            System.out.println("Persistence file not found. Starting with new state.");
+            return new BookingHistory();
+        } catch (IOException | ClassNotFoundException e) {
+            System.out.println("Error loading booking history. Starting with new state.");
+            return new BookingHistory();
+        }
     }
 }
 
 public class BookMyStay2 {
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
+        String persistenceFile = "booking_history.dat";
 
-        BookingHistory history = new BookingHistory();
+        BookingHistory history = BookingHistory.loadFromFile(persistenceFile);
 
-        List<GuestBookingThread> threads = new ArrayList<>();
+        // Example bookings
+        Reservation r1 = new Reservation("RES101", "Alice", "Deluxe", 3, 4500);
+        Reservation r2 = new Reservation("RES102", "Bob", "Standard", 2, 3000);
 
-        threads.add(new GuestBookingThread(history, new Reservation("RES101", "Alice", "Deluxe", 3, 4500)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES102", "Bob", "Standard", 2, 3000)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES103", "Charlie", "Suite", 5, 12500)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES104", "David", "Suite", 1, 5000)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES105", "Eve", "Deluxe", 2, 4000)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES106", "Frank", "Standard", 3, 4500)));
-        threads.add(new GuestBookingThread(history, new Reservation("RES107", "Grace", "Deluxe", 1, 2000)));
-
-        for (GuestBookingThread t : threads) {
-            t.start();
-        }
-
-        for (GuestBookingThread t : threads) {
-            t.join();
-        }
+        history.addReservation(r1);
+        history.addReservation(r2);
 
         System.out.println();
         history.printBookingHistory();
         System.out.println();
         history.printInventory();
+
+        // Save state for next run
+        history.saveToFile(persistenceFile);
     }
 }
